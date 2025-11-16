@@ -2,8 +2,8 @@ import requests
 from datetime import datetime
 from utils.logger import info, error
 from config.settings import GOOGLE_API_KEY, GOOGLE_PLACE_ID, GOOGLE_BASE_URL
-from utils.db import get_or_create_channel, insert_raw_feedback, update_channel_last_ingested, get_conn
-
+from utils.db import get_conn, get_or_create_channel, insert_raw_feedback, update_channel_last_ingested
+import json
 
 def fetch_google_reviews():
     params = {
@@ -12,18 +12,14 @@ def fetch_google_reviews():
         'key': GOOGLE_API_KEY,
         'language': 'id'
     }
-
     response = requests.get(GOOGLE_BASE_URL, params=params)
     data = response.json()
-
     if data.get("status") != "OK":
         error(f"Google API Error: {data}")
         return None, []
-
     place = data.get("result", {})
     reviews = place.get("reviews", [])
     return place, reviews
-
 
 def ingest_google():
     conn = get_conn()
@@ -36,30 +32,25 @@ def ingest_google():
 
     info(f"Data fetched from Google API. Total reviews fetched: {len(reviews)}")
 
-    # Register channel
-    channel_id = get_or_create_channel(
-        conn,
-        name="Google Maps",
-        type_="api",
-        base_url="https://maps.google.com"
-    )
-
-    if not channel_id:
-        error("Failed to get or create channel. Aborting ingestion.")
-        conn.close()
-        return
-
+    channel_id = get_or_create_channel(conn, name="Google Maps", type_="api", base_url=GOOGLE_BASE_URL)
     info(f"Using channel_id: {channel_id}")
 
-    # Parse reviews
     items = []
-    for r in reviews:
-        review_time = datetime.fromtimestamp(r["time"]) if r.get("time") else None
+    for idx, r in enumerate(reviews):
+        author = r.get("author_name") or ""
+        content = r.get("text") or ""
+        timestamp = r.get("time") or datetime.now().timestamp()
+        review_time = datetime.fromtimestamp(timestamp)
+
+        if not content.strip():
+            print(f"⚠ Skip idx {idx}: content kosong")
+            continue
+
         items.append({
             "channel_id": channel_id,
-            "author_name": r.get("author_name"),
+            "author_name": author,
             "rating": r.get("rating"),
-            "content": r.get("text"),
+            "content": content,
             "source_url": r.get("author_url"),
             "review_created_at": review_time,
             "metadata": {
@@ -71,12 +62,9 @@ def ingest_google():
             }
         })
 
-    info(f"Parsed {len(items)} reviews to insert.")
-
     inserted = insert_raw_feedback(conn, items)
     info(f"[SUCCESS] Inserted {inserted} rows into raw_feedback.")
 
-    # Update last_ingested_at
     updated = update_channel_last_ingested(conn, channel_id)
     if updated:
         info("[INFO] last_ingested_at updated successfully.")
