@@ -70,7 +70,7 @@ def crawl_traveloka_reviews(hotel_url, max_pages=5):
                             reviews_data.append({
                                 "author_name": review_name_tag.text.strip(),
                                 "content": review_content_tag.text.strip(),
-                                "rating": f"{rating_title_tag.text.strip()}/10",  # Format asli "8/10"
+                                "rating": f"{rating_title_tag.text.strip()}", 
                                 "review_created_at": review_date,
                                 "metadata": {
                                     "hotel_name": hotel_name,
