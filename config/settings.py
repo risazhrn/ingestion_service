@@ -14,3 +14,7 @@ GOOGLE_PLACE_ID = os.getenv("GOOGLE_PLACE_ID")
 
 GOOGLE_BASE_URL = "https://maps.googleapis.com/maps/api/place/details/json"
 TRAVELOKA_BASE_URL = os.getenv("TRAVELOKA_BASE_URL")
+
+FB_BASE_URL = os.getenv("FB_BASE_URL")
+FB_PAGE_ID = os.getenv("FB_PAGE_ID")
+FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN")

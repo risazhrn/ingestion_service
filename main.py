@@ -1,12 +1,14 @@
 from ingestion.ingest_google import ingest_google
 from ingestion.ingest_traveloka import ingest_traveloka
+from ingestion.ingest_facebook import ingest_facebook
 
 def run_pipeline():
     print("🚀 Starting data ingestion pipeline...")
 
     steps = [
-        ("Google Reviews", ingest_google),
-        ("Traveloka Reviews", ingest_traveloka),
+        # ("Google Reviews", ingest_google),
+        # ("Traveloka Reviews", ingest_traveloka),
+        ("Facebook Reviews", ingest_facebook),
     ]
 
     for name, func in steps:
