@@ -62,6 +62,7 @@ def insert_raw_feedback(conn, items):
         return 0
 
     success = 0
+    duplicate_count = 0
     insert_sql = """
         INSERT INTO raw_feedback
         (channel_id, author_name, rating, content, source_url, review_created_at, metadata)
@@ -85,7 +86,7 @@ def insert_raw_feedback(conn, items):
                 cur.execute(check_sql, (item.get("author_name"), item.get("rating"), content))
                 exist = cur.fetchone()
                 if exist:
-                    print(f"⚠ Review idx {idx} sudah ada di DB, skip insert.")
+                    duplicate_count += 1
                     continue
 
                 # Insert baru
@@ -104,5 +105,15 @@ def insert_raw_feedback(conn, items):
             print(f"❌ ERROR insert_raw_feedback idx={idx}: {e}")
             continue
 
-    print(f"\n✅ insert_raw_feedback selesai. Total sukses: {success}/{len(items)}")
+    # Print summary di akhir
+    if success == 0:
+        if duplicate_count > 0:
+            print(f"\n📊 Tidak ada pembaruan data. Semua data sudah ada di database.")
+        else:
+            print(f"\n📊 Tidak ada data yang berhasil diproses.")
+    else:
+        print(f"\n✅ Data terbaru berhasil ditambahkan. Total: {success} data baru")
+        if duplicate_count > 0:
+            print(f"📋 Skip: {duplicate_count} data sudah ada")
+
     return success

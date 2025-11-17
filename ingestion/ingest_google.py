@@ -1,93 +1,104 @@
 import requests
 from datetime import datetime
-
-from config.settings import (
-    GOOGLE_API_KEY,
-    GOOGLE_PLACE_ID,
-    GOOGLE_BASE_URL
-)
-
-from utils.db import (
-    get_conn,
-    get_or_create_channel,
-    insert_raw_feedback
-)
+from utils.logger import info, error
+from config.settings import GOOGLE_API_KEY, GOOGLE_PLACE_ID, GOOGLE_BASE_URL
+from utils.db import get_conn, get_or_create_channel, insert_raw_feedback, update_channel_last_ingested
+from channels.google_maps import fetch_google_reviews, process_google_reviews
 
 def ingest_google():
-    conn = get_conn()
-    print("[INFO] Connected to DB.")
-
+    """
+    Main ingestion function untuk Google Maps reviews
+    """
+    conn = None
+    
     try:
-        # ================================
-        # 1. Fetch data dari Google API
-        # ================================
-        params = {
-            "place_id": GOOGLE_PLACE_ID,
-            "fields": "name,rating,reviews,formatted_address,user_ratings_total",
-            "key": GOOGLE_API_KEY,
-            "language": "id"
-        }
+        info("=" * 50)
+        info("🚀 STARTING GOOGLE MAPS INGESTION")
+        info("=" * 50)
+        
+        # Step 1: Fetch data dari Google API
+        info("📡 Step 1: Fetching data from Google Places API...")
+        place, raw_reviews = fetch_google_reviews()
+        
+        if place is None or not raw_reviews:
+            error("❌ No data fetched from Google API")
+            return 0
+            
+        info(f"📊 Fetched {len(raw_reviews)} raw reviews")
 
-        response = requests.get(GOOGLE_BASE_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
+        # Step 2: Setup database connection
+        info("💾 Step 2: Setting up database connection...")
+        conn = get_conn()
+        if not conn:
+            error("❌ Failed to establish database connection")
+            return 0
 
-        print("[INFO] Data fetched from Google API.")
-
-        if data.get("status") != "OK":
-            raise ValueError(f"Google API error: {data.get('status')} | {data.get('error_message')}")
-
-        result = data.get("result", {})
-        reviews = result.get("reviews", [])
-
-        print(f"[INFO] Total reviews fetched: {len(reviews)}")
-
-        # ================================
-        # 2. Get or create channel
-        # ================================
+        # Step 3: Get or create channel
+        info("🏷️ Step 3: Setting up channel...")
         channel_id = get_or_create_channel(
-            conn,
-            name="Google Reviews",
-            type_="api",
+            conn, 
+            name="Google Maps", 
+            type_="api", 
             base_url=GOOGLE_BASE_URL
         )
+        
+        if not channel_id:
+            error("❌ Failed to get or create channel")
+            return 0
+            
+        info(f"✅ Channel ID: {channel_id}")
 
-        print(f"[INFO] Using channel_id: {channel_id}")
+        # Step 4: Process reviews dengan auto-translate
+        info("🔄 Step 4: Processing reviews with auto-translation...")
+        processed_reviews = process_google_reviews(raw_reviews)
+        
+        if not processed_reviews:
+            error("❌ No reviews after processing")
+            return 0
+            
+        info(f"📝 Processed {len(processed_reviews)} reviews")
 
-        # ================================
-        # 3. Parse reviews
-        # ================================
-        parsed = []
-
-        for r in reviews:
-            parsed.append({
+        # Step 5: Transform untuk database
+        info("🗃️ Step 5: Transforming data for database...")
+        transformed_reviews = []
+        for review in processed_reviews:
+            transformed_reviews.append({
                 "channel_id": channel_id,
-                "author_name": r.get("author_name"),
-                "rating": r.get("rating"),
-                "content": r.get("text"),
-                "source_url": r.get("author_url"),
-                "review_created_at": datetime.fromtimestamp(r.get("time")),
-                "metadata": {
-                    "language": r.get("language"),
-                    "profile_photo_url": r.get("profile_photo_url"),
-                    "relative_time_description": r.get("relative_time_description"),
-                    "original_language": r.get("original_language"),
-                    "translated": r.get("translated")
-                }
+                "author_name": review.get("author_name"),
+                "rating": review.get("rating"),
+                "content": review.get("content"),
+                "source_url": review.get("source_url"),
+                "review_created_at": review.get("review_created_at"),
+                "metadata": review.get("metadata", {})
             })
 
-        print(f"[INFO] Parsed {len(parsed)} reviews to insert.")
+        # Step 6: Insert ke database
+        info("💽 Step 6: Inserting into database...")
+        inserted_count = insert_raw_feedback(conn, transformed_reviews)
+        
+        # Step 7: Update channel last ingested
+        info("🕒 Step 7: Updating channel timestamp...")
+        updated = update_channel_last_ingested(conn, channel_id)
+        if updated:
+            info("✅ Channel timestamp updated successfully")
+        else:
+            error("❌ Failed to update channel timestamp")
 
-        # ================================
-        # 4. Insert into DB
-        # ================================
-        count = insert_raw_feedback(conn, parsed)
-        print(f"[SUCCESS] Inserted {count} rows into raw_feedback.")
-
+        info("=" * 50)
+        info(f"✅ GOOGLE MAPS INGESTION COMPLETED")
+        info(f"📈 Inserted: {inserted_count} reviews")
+        info("=" * 50)
+        
+        return inserted_count
+        
     except Exception as e:
-        print("[ERROR] Google ingestion failed:")
-        print(str(e))
-
+        error("💥 GOOGLE MAPS INGESTION FAILED")
+        error(f"Error: {e}")
+        import traceback
+        error(f"Trace: {traceback.format_exc()}")
+        return 0
+        
     finally:
-        conn.close()
-        print("[INFO] Database connection closed.")
+        if conn:
+            conn.close()
+            info("🔚 Database connection closed")

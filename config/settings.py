@@ -13,3 +13,4 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_PLACE_ID = os.getenv("GOOGLE_PLACE_ID")
 
 GOOGLE_BASE_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+TRAVELOKA_BASE_URL = os.getenv("TRAVELOKA_BASE_URL")
