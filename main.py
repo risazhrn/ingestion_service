@@ -7,8 +7,8 @@ def run_pipeline():
 
     steps = [
         # ("Google Reviews", ingest_google),
-        # ("Traveloka Reviews", ingest_traveloka),
-        ("Facebook Reviews", ingest_facebook),
+        ("Traveloka Reviews", ingest_traveloka),
+        # ("Facebook Reviews", ingest_facebook),
     ]
 
     for name, func in steps:
