@@ -6,9 +6,9 @@ def run_pipeline():
     print("🚀 Starting data ingestion pipeline...")
 
     steps = [
-        # ("Google Reviews", ingest_google),
+        ("Google Reviews", ingest_google),
         ("Traveloka Reviews", ingest_traveloka),
-        # ("Facebook Reviews", ingest_facebook),
+        ("Facebook Reviews", ingest_facebook),
     ]
 
     for name, func in steps:
