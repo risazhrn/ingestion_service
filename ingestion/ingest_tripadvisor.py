@@ -132,8 +132,3 @@ def ingest_tripadvisor():
         if conn:
             conn.close()
             info("🔚 Database connection closed")
-
-# Untuk testing standalone
-if __name__ == "__main__":
-    result = ingest_tripadvisor()
-    info(f"🎉 Final result: {result} reviews ingested")
