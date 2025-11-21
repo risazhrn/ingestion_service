@@ -1,6 +1,7 @@
 from ingestion.ingest_google import ingest_google
 from ingestion.ingest_traveloka import ingest_traveloka
 from ingestion.ingest_facebook import ingest_facebook
+from ingestion.ingest_tripadvisor import ingest_tripadvisor
 
 def run_pipeline():
     print("🚀 Starting data ingestion pipeline...")
@@ -9,6 +10,7 @@ def run_pipeline():
         ("Google Reviews", ingest_google),
         ("Traveloka Reviews", ingest_traveloka),
         ("Facebook Reviews", ingest_facebook),
+        ("Trip Advisor Reviews", ingest_tripadvisor),
     ]
 
     for name, func in steps:
@@ -18,7 +20,6 @@ def run_pipeline():
             print(f"✔ Step completed: {name}")
         except Exception as e:
             print(f"❌ Error in step {name}: {e}")
-            # pipeline lanjut, tidak berhenti
 
     print("\n🎉 Pipeline finished.")
 
