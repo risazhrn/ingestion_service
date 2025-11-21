@@ -10,7 +10,7 @@ def run_pipeline():
         ("Google Reviews", ingest_google),
         ("Traveloka Reviews", ingest_traveloka),
         ("Facebook Reviews", ingest_facebook),
-        ("Trip Advisor Reviews", ingest_tripadvisor),
+        ("TripAdvisor Reviews", ingest_tripadvisor),
     ]
 
     for name, func in steps:
