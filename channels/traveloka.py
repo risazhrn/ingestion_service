@@ -173,8 +173,8 @@ def refresh_review_elements(driver):
 
 def get_review_data(review_element):
     try:
-        review_name_tag = review_element.find_element(By.CSS_SELECTOR, 'div.css-901oao.r-uh8wd5.r-ubezar.r-b88u0q.r-135wba7.r-fdjqy7')
-        review_content_tag = review_element.find_element(By.CSS_SELECTOR, 'div.css-1dbjc4n.r-1udh08x > div.css-1dbjc4n > div.css-901oao.r-uh8wd5.r-1b43r93.r-majxgm.r-rjixqe.r-fdjqy7')
+        review_name_tag = review_element.find_element(By.CSS_SELECTOR, 'div.css-901oao.r-uh8wd5.r-b88u0q.r-fdjqy7')
+        review_content_tag = review_element.find_element(By.CSS_SELECTOR, 'div.css-1dbjc4n.r-1udh08x > div.css-1dbjc4n > div.css-901oao.css-cens5h.r-uh8wd5.r-1b43r93.r-majxgm.r-rjixqe.r-fdjqy7')
         rating_title_tag = review_element.find_element(By.CSS_SELECTOR, 'div[data-testid="tvat-ratingScore"]')
         review_date_tag = review_element.find_element(By.CSS_SELECTOR, 'div.css-901oao.r-1ud240a.r-uh8wd5.r-1b43r93.r-b88u0q.r-1cwl3u0.r-fdjqy7')
         
