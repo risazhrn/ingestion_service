@@ -1,3 +1,5 @@
+# filename: ingestion/ingest_facebook.py
+import hashlib
 from datetime import datetime
 from utils.db import (
     get_conn,
@@ -14,153 +16,153 @@ class FacebookIngestor:
         self.channel_name = "Facebook"
         self.channel_type = "api"
         self.base_url = FB_BASE_URL
-    
-    def _transform_comment_date(self, date_string):
+
+    def _parse_iso_datetime(self, date_string):
         """
-        Transform Facebook date format ke Python datetime
-        
-        Args:
-            date_string (str): Date string dari Facebook API
-            
-        Returns:
-            datetime: Python datetime object
+        Robust ISO datetime parsing. Return datetime or None.
+        We try multiple safe parsers; do NOT silently set to now
+        (we will mark missing flag if parsing fails).
         """
+        if not date_string:
+            return None
         try:
-            # Handle Facebook's ISO format dengan timezone
-            if date_string and date_string.endswith("+0000"):
-                date_string = date_string[:-5] + "+00:00"
-            
-            return datetime.fromisoformat(date_string) if date_string else datetime.utcnow()
-        except Exception as e:
-            error(f"❌ Error transforming date {date_string}: {e}")
-            return datetime.utcnow()
-    
+            # Try fromisoformat (Python 3.7+)
+            # Normalize Z -> +00:00 for fromisoformat
+            ds = date_string
+            if ds.endswith("Z"):
+                ds = ds[:-1] + "+00:00"
+            # Some APIs give "+0000" (no colon) — insert colon
+            if len(ds) >= 5 and (ds[-5] in ['+', '-']) and (ds[-3] != ':'):
+                # transform +0000 -> +00:00
+                ds = ds[:-5] + ds[-5:-2] + ":" + ds[-2:]
+            return datetime.fromisoformat(ds)
+        except Exception:
+            # Try a few common fallbacks
+            formats = [
+                "%Y-%m-%dT%H:%M:%S%z",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M:%S",
+            ]
+            for fmt in formats:
+                try:
+                    return datetime.strptime(date_string, fmt)
+                except Exception:
+                    continue
+        return None
+
+    def _generate_external_id(self, author, content, created_at, prefix="fb"):
+        """
+        Deterministic fallback external_id generator when source doesn't provide one.
+        """
+        raw = f"{prefix}|{author}|{content}|{created_at}"
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
     def _transform_facebook_data(self, raw_data, channel_id):
         """
-        Transform data Facebook ke format database
-        
-        Args:
-            raw_data (list): Raw data dari Facebook API
-            channel_id (int): ID channel Facebook di database
-            
-        Returns:
-            list: Transformed data siap untuk database
+        Standardize Facebook data to ingestion format.
+        Keeps rating as None (Facebook has no numeric rating).
+        If created_time can't be parsed, falls back to ingestion time but marks metadata.
         """
         transformed_data = []
-        
         for post in raw_data:
-            post_id = post["post_id"]
-            
-            for comment in post["comments"]:
-                # Transform comment data
+            post_id = post.get("post_id")
+            post_message = post.get("message", "") or ""
+            for comment in post.get("comments", []):
+                # Pull basic fields safely
+                author_name = (comment.get("from") or {}).get("name") or "Guest"
+                content = comment.get("message") or ""
+                raw_created = comment.get("created_time")
+
+                parsed_date = self._parse_iso_datetime(raw_created)
+                created_missing = False
+                if parsed_date is None:
+                    # DB requires a non-null review_created_at; fallback to ingestion time BUT mark metadata
+                    parsed_date = datetime.utcnow()
+                    created_missing = True
+
+                comment_id = comment.get("id")
+                if not comment_id or not str(comment_id).strip():
+                    # generate deterministic external id fallback
+                    comment_id = self._generate_external_id(author_name, content[:300], raw_created or parsed_date.isoformat())
+
                 transformed_comment = {
                     "channel_id": channel_id,
-                    "author_name": comment.get("from", {}).get("name", "Unknown User"),
-                    "rating": None,  # Facebook comments don't have ratings
-                    "content": comment.get("message", ""),
-                    "source_url": f"https://facebook.com/{post_id}",
-                    "review_created_at": self._transform_comment_date(comment.get("created_time")),
+                    "external_id": comment_id,
+                    "author_name": author_name,
+                    "rating": None,  # Facebook does not provide a numeric rating
+                    "content": content,
+                    "source_url": f"https://facebook.com/{post_id}" if post_id else None,
+                    "review_created_at": parsed_date,
                     "metadata": {
+                        "source": "facebook",
                         "comment_id": comment.get("id"),
                         "post_id": post_id,
-                        "post_message": post.get("message", "")[:200],  # Truncate long posts
-                        "original_data": comment  # Keep original for reference
+                        "post_message": post_message[:200],
+                        "original_data": comment,
+                        "created_time_raw": raw_created,
+                        "created_time_missing": created_missing
                     }
                 }
-                
-                # Only include comments with actual content
-                if transformed_comment["content"].strip():
+
+                if transformed_comment["content"] and transformed_comment["content"].strip():
                     transformed_data.append(transformed_comment)
                 else:
-                    info(f"⚠️ Skipping empty comment from {transformed_comment['author_name']}")
-        
+                    info(f"⚠️ Skipping empty comment from {transformed_comment['author_name']} (id={comment_id})")
         return transformed_data
-    
+
     def ingest(self, post_limit=3):
-        """
-        Main ingestion process untuk Facebook data
-        
-        Args:
-            post_limit (int): Jumlah postingan yang akan di-process
-            
-        Returns:
-            int: Jumlah records yang berhasil di-insert
-        """
         conn = None
         try:
             info("🚀 STARTING FACEBOOK INGESTION PROCESS")
-            
-            # Step 1: Fetch data dari Facebook API
-            info(f"📥 Fetching {post_limit} latest posts from Facebook...")
             raw_data = fetch_facebook_data(limit=post_limit)
-            
             if not raw_data:
                 error("❌ No data available for ingestion")
                 return 0
-            
-            # Step 2: Setup database connection
+
             conn = get_conn()
             if not conn:
                 error("❌ Database connection failed")
                 return 0
-            
-            # Step 3: Get or create Facebook channel
+
             channel_id = get_or_create_channel(
-                conn, 
+                conn,
                 name=self.channel_name,
                 type_=self.channel_type,
                 base_url=self.base_url
             )
-            
             if not channel_id:
                 error("❌ Failed to get or create Facebook channel")
                 return 0
-            
+
             info(f"📝 Using channel ID: {channel_id}")
-            
-            # Step 4: Transform data untuk database
             info("🔄 Transforming Facebook data for database...")
             final_data = self._transform_facebook_data(raw_data, channel_id)
-            
+
             if not final_data:
                 info("ℹ️ No valid comments found for ingestion")
                 return 0
-            
+
             info(f"📊 Transformed {len(final_data)} comments for insertion")
-            
-            # Step 5: Insert ke database
             info("💾 Inserting data into database...")
             inserted_count = insert_raw_feedback(conn, final_data)
-            
-            # Step 6: Update last ingested timestamp
+
+            # Update channel timestamp even if inserted_count == 0 (we polled)
             update_channel_last_ingested(conn, channel_id)
-            
-            info(f"✅ FACEBOOK INGESTION COMPLETED - {inserted_count} records inserted")
+
+            info(f"✅ FACEBOOK INGESTION COMPLETED - {inserted_count} records inserted/updated")
             return inserted_count
-            
+
         except Exception as e:
             error(f"💥 CRITICAL ERROR during Facebook ingestion: {e}")
             import traceback
             error(f"Stack trace: {traceback.format_exc()}")
             return 0
-            
         finally:
             if conn:
                 conn.close()
                 info("🔚 Database connection closed")
 
 
-# Fungsi utama untuk compatibility
 def ingest_facebook(post_limit=3):
-    """
-    Main function untuk Facebook ingestion (legacy compatibility)
-    
-    Args:
-        post_limit (int): Jumlah postingan yang akan di-process
-        
-    Returns:
-        int: Jumlah records yang berhasil di-insert
-    """
     ingestor = FacebookIngestor()
     return ingestor.ingest(post_limit)
-
