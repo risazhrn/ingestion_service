@@ -2,28 +2,43 @@ import logging
 import sys
 from datetime import datetime
 
-# Konfigurasi Logging Dasar
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+# --- Custom Formatter with Colors ---
+class ColorFormatter(logging.Formatter):
+    COLORS = {
+        'INFO': '\033[0m',       # white
+        'WARNING': '\033[93m',   # yellow
+        'ERROR': '\033[91m',     # red
+    }
+    RESET = '\033[0m'
 
-def _get_timestamp():
-    return datetime.now().strftime("%H:%M:%S")
+    def format(self, record):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        emoji = {
+            'INFO': "ℹ️ ",
+            'WARNING': "⚠️ ",
+            'ERROR': "❌",
+        }.get(record.levelname, "")
 
-def info(message):
-    """Mencetak pesan INFO (Warna Putih/Normal)"""
-    print(f"[{_get_timestamp()}] ℹ️  {message}")
+        color = self.COLORS.get(record.levelname, "")
+        message = super().format(record)
 
-def warn(message):
-    """Mencetak pesan WARNING (Warna Kuning)"""
-    # Kode warna ANSI Yellow: \033[93m
-    print(f"[{_get_timestamp()}] ⚠️  \033[93m{message}\033[0m")
+        return f"[{timestamp}] {emoji} {color}{message}{self.RESET}"
 
-def error(message):
-    """Mencetak pesan ERROR (Warna Merah)"""
-    # Kode warna ANSI Red: \033[91m
-    print(f"[{_get_timestamp()}] ❌ \033[91m{message}\033[0m")
+
+# --- Setup Logger ---
+logger = logging.getLogger("omnichannel")
+logger.setLevel(logging.INFO)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(ColorFormatter("%(message)s"))
+logger.addHandler(handler)
+
+# Public wrappers
+def info(msg):
+    logger.info(msg)
+
+def warn(msg):
+    logger.warning(msg)
+
+def error(msg):
+    logger.error(msg)

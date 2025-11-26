@@ -1,104 +1,110 @@
-import requests
 from datetime import datetime
 from utils.logger import info, error
-from config.settings import GOOGLE_API_KEY, GOOGLE_PLACE_ID, GOOGLE_BASE_URL
-from utils.db import get_conn, get_or_create_channel, insert_raw_feedback, update_channel_last_ingested
+from utils.db import (
+    get_conn,
+    get_or_create_channel,
+    insert_raw_feedback,
+    update_channel_last_ingested,
+)
 from channels.google_maps import fetch_google_reviews, process_google_reviews
+from config.settings import GOOGLE_BASE_URL
+
 
 def ingest_google():
     """
-    Main ingestion function untuk Google Maps reviews
+    Main ingestion pipeline: fetch → process → store → update timestamp.
     """
     conn = None
-    
-    try:
-        info("=" * 50)
-        info("🚀 STARTING GOOGLE MAPS INGESTION")
-        info("=" * 50)
-        
-        # Step 1: Fetch data dari Google API
-        info("📡 Step 1: Fetching data from Google Places API...")
-        place, raw_reviews = fetch_google_reviews()
-        
-        if place is None or not raw_reviews:
-            error("❌ No data fetched from Google API")
-            return 0
-            
-        info(f"📊 Fetched {len(raw_reviews)} raw reviews")
 
-        # Step 2: Setup database connection
-        info("💾 Step 2: Setting up database connection...")
+    try:
+        info("=" * 60)
+        info("🚀 STARTING GOOGLE MAPS INGESTION")
+        info("=" * 60)
+
+        # ---------------------------------------------------------------------
+        # 1. FETCH GOOGLE API
+        # ---------------------------------------------------------------------
+        place, raw_reviews = fetch_google_reviews()
+        if not place or not raw_reviews:
+            error("❌ No reviews fetched from Google API")
+            return 0
+
+        info(f"📊 Raw reviews fetched: {len(raw_reviews)}")
+
+        # ---------------------------------------------------------------------
+        # 2. DB CONNECTION
+        # ---------------------------------------------------------------------
         conn = get_conn()
         if not conn:
-            error("❌ Failed to establish database connection")
+            error("❌ Failed to connect to database")
             return 0
+        info("💾 Connected to database")
 
-        # Step 3: Get or create channel
-        info("🏷️ Step 3: Setting up channel...")
+        # ---------------------------------------------------------------------
+        # 3. CHANNEL SETUP
+        # ---------------------------------------------------------------------
         channel_id = get_or_create_channel(
-            conn, 
-            name="Google Maps", 
-            type_="api", 
-            base_url=GOOGLE_BASE_URL
+            conn,
+            name="Google Maps",
+            type_="api",
+            base_url=GOOGLE_BASE_URL,
         )
-        
+
         if not channel_id:
-            error("❌ Failed to get or create channel")
+            error("❌ Failed to create/find channel")
             return 0
-            
-        info(f"✅ Channel ID: {channel_id}")
 
-        # Step 4: Process reviews dengan auto-translate
-        info("🔄 Step 4: Processing reviews with auto-translation...")
-        processed_reviews = process_google_reviews(raw_reviews)
-        
-        if not processed_reviews:
-            error("❌ No reviews after processing")
+        info(f"🏷️ Channel ID: {channel_id}")
+
+        # ---------------------------------------------------------------------
+        # 4. PROCESS REVIEWS
+        # ---------------------------------------------------------------------
+        processed = process_google_reviews(raw_reviews)
+        if not processed:
+            error("❌ No valid reviews after processing")
             return 0
-            
-        info(f"📝 Processed {len(processed_reviews)} reviews")
 
-        # Step 5: Transform untuk database
-        info("🗃️ Step 5: Transforming data for database...")
-        transformed_reviews = []
-        for review in processed_reviews:
-            transformed_reviews.append({
+        info(f"📝 Reviews ready for DB: {len(processed)}")
+
+        # ---------------------------------------------------------------------
+        # 5. TRANSFORM & INSERT
+        # ---------------------------------------------------------------------
+        transformed = []
+        for r in processed:
+            transformed.append({
                 "channel_id": channel_id,
-                "author_name": review.get("author_name"),
-                "rating": review.get("rating"),
-                "content": review.get("content"),
-                "source_url": review.get("source_url"),
-                "review_created_at": review.get("review_created_at"),
-                "metadata": review.get("metadata", {})
+                "author_name": r["author_name"],
+                "rating": r["rating"],
+                "content": r["content"],
+                "source_url": r["source_url"],
+                "review_created_at": r["review_created_at"],
+                "metadata": r["metadata"],
             })
 
-        # Step 6: Insert ke database
-        info("💽 Step 6: Inserting into database...")
-        inserted_count = insert_raw_feedback(conn, transformed_reviews)
-        
-        # Step 7: Update channel last ingested
-        info("🕒 Step 7: Updating channel timestamp...")
-        updated = update_channel_last_ingested(conn, channel_id)
-        if updated:
-            info("✅ Channel timestamp updated successfully")
-        else:
-            error("❌ Failed to update channel timestamp")
+        inserted_count = insert_raw_feedback(conn, transformed)
 
-        info("=" * 50)
-        info(f"✅ GOOGLE MAPS INGESTION COMPLETED")
-        info(f"📈 Inserted: {inserted_count} reviews")
-        info("=" * 50)
-        
+        # ---------------------------------------------------------------------
+        # 6. UPDATE LAST INGESTED
+        # ---------------------------------------------------------------------
+        if update_channel_last_ingested(conn, channel_id):
+            info("🕒 Channel last_ingested_at updated")
+        else:
+            error("❌ Failed to update last_ingested_at")
+
+        info("=" * 60)
+        info(f"✅ INGESTION COMPLETED — Inserted {inserted_count} reviews")
+        info("=" * 60)
+
         return inserted_count
-        
+
     except Exception as e:
-        error("💥 GOOGLE MAPS INGESTION FAILED")
+        error("💥 INGESTION FAILED")
         error(f"Error: {e}")
         import traceback
-        error(f"Trace: {traceback.format_exc()}")
+        error(traceback.format_exc())
         return 0
-        
+
     finally:
         if conn:
             conn.close()
-            info("🔚 Database connection closed")
+            info("🔚 DB connection closed")
